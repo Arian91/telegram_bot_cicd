@@ -1,0 +1,29 @@
+services:
+  bot_image_dev:
+    image: localhost:6000/bot_image
+    depends_on:
+      - postgresql-db_master
+    restart: always
+    volumes:
+      - ./pg_logs:/var/log
+
+  postgresql-db_master:
+    image: localhost:6000/db_master
+    ports:
+      - 5432:5432
+    volumes:
+      - ./init:/docker-entrypoint-initdb.d
+      - ./pg_data:/lib/postgresql/data
+      - ./pg_logs:/var/log/postgresql
+
+  postgresql-db_slave:
+    image: localhost:6000/db_slave
+    ports:
+      - 5444:5432
+    depends_on:
+      - postgresql-db_master
+    environment:
+      - POSTGRESQL_MASTER_HOST=postgresql-db_master
+      - POSTGRESQL_MASTER_PORT_NUMBER=5432
+      - REPLICATION_USER=repluser
+      - REPLICATION_PASSWORD=12345
