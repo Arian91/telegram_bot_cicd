@@ -1,5 +1,5 @@
-#@test_7876_bot
-#kkuznetsov
+#@test_7876
+
 
 import paramiko
 from telegram import Update
