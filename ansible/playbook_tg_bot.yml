@@ -1,0 +1,125 @@
+---
+- hosts: bot
+  tasks:
+    - name: Клонирование репозитория и checkout в ветку ansible
+      git:
+        repo: https://github.com/Arian91/telegram_bot_cicd/
+        dest: /home/ubuntu/bot/
+        version: ansible
+        update: yes
+
+    - name: Устанавливаем python3
+      apt:
+        name:
+          - python3
+          - python3-pip
+        state: latest
+
+    - name: Копирование .env файла с контроллера на удалённый хост
+      copy:
+        src: /homecode/START/bot/.env
+        dest: /home/ubuntu/bot/.env
+        owner: ansible
+        group: ansible
+        mode: '0644'
+
+    - name: Установка зависимостей из requirements.txt
+      pip:
+        requirements: /home/ubuntu/bot/requirements.txt
+        state: present
+
+    - name: Запуск main.py в nohup
+      command: nohup python3 /home/ubuntu/bot/bot_ssh_telegram.py &
+      args:
+        chdir: /home/ubuntu/bot
+        creates: /tmp/start.lock
+      async: 1
+      poll: 0
+
+- hosts: debian2-slave
+  become: True
+  tasks:
+    - name: Копирование postgresql.conf
+      copy:
+        src: /home/ubuntu/bot/pg_configs/primary/postgresql.conf
+        dest: /etc/postgresql/14/main/postgresql.conf
+        owner: postgres
+        group: postgres
+        mode: '0644'
+
+    - name: Копирование pg_hba.conf
+      copy:
+        src: /home/ubuntu/bot/pg_configs/primary/pg_hba.conf
+        dest: /etc/postgresql/14/main/pg_hba.conf
+        owner: postgres
+        group: postgres
+        mode: '0644'
+
+    - name: Перезапуск службы postgresql
+      service:
+        name: postgresql
+        state: restarted
+
+    - name: Создание базы данных db_test
+      become: yes
+      become_user: postgres
+      postgresql_db:
+        name: db_test
+        state: present
+        login_user: postgres
+
+    - name: загрузка инит файла sql
+      copy:
+        src: /home/ubuntu/bot/schema.sql
+        dest: /tmp/schema.sql
+        owner: postgres
+        group: postgres
+        mode: '0644'
+
+    - name: Загрузка схемы из файла schema.sql
+      become: yes
+      become_user: postgres
+      command: psql db_test -f /tmp/schema.sql
+
+- hosts: debian3-slave
+  become: True
+  tasks:
+    - name: Копирование postgresql.conf для реплики
+      copy:
+        src: /home/ubuntu/bot/pg_configs/replica/postgresql.conf
+        dest: /etc/postgresql/14/main/postgresql.conf
+        owner: postgres
+        group: postgres
+        mode: '0644'
+
+    - name: Остановка службы postgresql
+      service:
+        name: postgresql
+        state: stopped
+
+    - name: Удаление данных в директории main
+      file:
+        path: /var/lib/postgresql/14/main/
+        state: absent
+
+    - name: Запуск службы postgresql после очистки
+      service:
+        name: postgresql
+        state: started
+
+    - name: Выполнение pg_basebackup
+      become: yes
+      become_user: postgres
+      command: pg_basebackup -R -h 192.168.0.2 -U repl_user -D /var/lib/postgresql/14/main -P
+      environment:
+        PGPASSWORD: "111"
+      register: pg_basebackup_result
+      failed_when: pg_basebackup_result.rc != 0
+      changed_when: False
+
+- hosts: bot
+  tasks:
+    - name: запускаем модуль для демонстрации и проверки процесса
+      command: python3 /home/ubuntu/bot/bot_ssh_telegram.py &
+      args:
+        chdir: /home/ubuntu/bot
