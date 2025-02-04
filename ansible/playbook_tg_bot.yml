@@ -33,7 +33,7 @@
       args:
         chdir: /home/ubuntu/bot
         creates: /tmp/start.lock
-      async: 1
+      async: 3600000
       poll: 0
 
 - hosts: debian2-slave
